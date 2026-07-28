@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GC Family旅行規劃小幫手</title>
+<title>旅行規劃與紀錄工具</title>
 <meta name="description" content="免費的旅行規劃與紀錄工具：行前準備、行李分人打包、藥品管理、每日行程與 Google Maps 導航、天氣預報、支出記帳、遊記與影音紀錄。資料只存在你自己的瀏覽器。">
 <meta name="theme-color" content="#2a78d6">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1940,8 +1940,8 @@ function exportAll() {
      · 伺服器與資料庫只看得到密文與驗證 token
      · 兩把金鑰互相獨立，拿到其中一把推不出另一把
    ============================================================ */
-const SUPA_URL = 'https://rajdqtzpcubtepqejzuy.supabase.co/;
-const SUPA_KEY = 'sb_publishable_5POZ9fIkr9PkSb6GHmc8Ag_c4DY7Ygb';
+const SUPA_URL = '';        // 例如 'https://abcdefghijkl.supabase.co'
+const SUPA_KEY = '';        // 例如 'eyJhbGciOi...'（anon / publishable key）
 
 const CLOUD_ON = !!(SUPA_URL && SUPA_KEY);
 const PULL_MS = 15000;      // 每 15 秒向雲端確認一次
@@ -1983,15 +1983,43 @@ async function decJson(key, box) {
 }
 
 /* ---------- Supabase RPC ---------- */
+/* 把常見的貼錯格式修正回 https://xxxxx.supabase.co */
+function supaBase() {
+  let u = String(SUPA_URL || '').trim().replace(/\s+/g, '');
+  if (!u) return '';
+  // 誤貼後台網址 https://supabase.com/dashboard/project/abcdefg
+  const dash = u.match(/supabase\.com\/dashboard\/project\/([a-z0-9]+)/i);
+  if (dash) return 'https://' + dash[1] + '.supabase.co';
+  u = u.replace(/\/rest\/v1.*$/i, '');   // 誤貼 .../rest/v1
+  u = u.replace(/\/+$/, '');             // 去掉結尾斜線
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  return u;
+}
+function supaHint(msg) {
+  if (/invalid path/i.test(msg))
+    return 'SUPA_URL 設定有誤。請確認是 https://xxxxx.supabase.co，後面不要接 /rest/v1 或任何路徑。';
+  if (/could not find the function|schema cache/i.test(msg))
+    return '資料庫函式對不上。請到 Supabase SQL Editor 執行 supabase-reset.sql（會先刪掉舊版函式再重建）。';
+  if (/invalid api key|jwt|unauthorized|401/i.test(msg))
+    return 'SUPA_KEY 不正確。請用 Project Settings → API 的 anon / public key（不是 service_role，也不是資料庫密碼）。';
+  if (/failed to fetch|networkerror/i.test(msg))
+    return '連不上 Supabase。請確認網址正確、專案沒有被暫停（免費專案閒置 7 天會自動暫停，可在後台按 Restore）。';
+  return msg;
+}
 async function supaRpc(fn, args) {
-  const r = await fetch(SUPA_URL.replace(/\/$/, '') + '/rest/v1/rpc/' + fn, {
+  const base = supaBase();
+  if (!base) throw new Error('尚未設定 SUPA_URL');
+  const r = await fetch(base + '/rest/v1/rpc/' + fn, {
     method: 'POST',
     headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify(args)
   });
   const txt = await r.text();
   let j = null; try { j = txt ? JSON.parse(txt) : null; } catch (e) { }
-  if (!r.ok) throw new Error((j && (j.message || j.hint)) || ('HTTP ' + r.status));
+  if (!r.ok) {
+    const raw = (j && (j.message || j.hint || j.error)) || (txt ? txt.slice(0, 120) : ('HTTP ' + r.status));
+    throw new Error(supaHint(raw));
+  }
   return j;
 }
 
@@ -2247,8 +2275,10 @@ function cloudPanel() {
       <button class="mbtn" onclick="cloudOpen()" ${CLOUD.busy ? 'disabled' : ''}>登入既有空間</button>
       <span class="hint" style="width:100%;margin-top:2px">
         一組<b>空間名稱 + 一組密碼</b>，底下裝你<b>所有旅程</b>。任何裝置輸入這兩個就看到全部內容與編輯紀錄；
-        之後新增旅程不用再設定，自動同步。內容<b>端對端加密</b>，密碼不會離開你的瀏覽器。
+        之後新增旅程不用再設定，自動同步。內容<b>端對端加密</b>，密碼不會離開你的瀏覽器。<br>
+        伺服器：<code>${esc(supaBase())}</code>
       </span>
+      ${CLOUD.err ? `<span class="hint" style="width:100%;color:var(--crit)">${esc(CLOUD.err)}</span>` : ''}
     </div>`;
   }
   return `<div class="modebar noprint" style="border-color:var(--good)">
