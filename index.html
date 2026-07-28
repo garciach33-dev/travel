@@ -158,6 +158,10 @@ td.ctr{text-align:center}
 .tripbar select{width:auto;max-width:260px;min-width:140px;font-size:13px;padding:5px 8px}
 .savetag{font-size:11.5px;color:var(--text-muted);margin-left:auto;white-space:nowrap}
 .savetag.bad{color:var(--crit);font-weight:650}
+.codebox{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;font-weight:700;letter-spacing:.08em;
+  background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent);border-radius:8px;padding:3px 12px}
+.modebar .hint code{background:var(--surface-3);padding:1px 5px;border-radius:4px;font-size:11.5px}
+.mbtn:disabled{opacity:.5;cursor:default}
 .rowdel.star{font-size:14px}
 .rowdel.star.on{color:var(--s4)}
 .rowdel.star:hover{color:var(--s4);background:var(--surface-3)}
@@ -267,11 +271,20 @@ details.acc>div{padding:0 13px 12px}
   <h3>使用說明</h3>
   <div class="hint" style="font-size:13px;color:var(--text-secondary)">
     <p><b>資料存在哪裡？</b><br>
-    全部只存在你這台裝置的瀏覽器（localStorage），<b>不會上傳到任何伺服器</b>，我們也看不到。
-    換裝置、換瀏覽器、清除瀏覽資料都會不見，所以請定期按<b>「匯出全部」</b>下載備份檔。</p>
+    預設<b>只存在你這台裝置的瀏覽器</b>（localStorage），不會上傳。
+    換裝置、清除瀏覽資料都會不見，所以請定期按<b>「匯出全部」</b>下載備份檔。<br>
+    若你使用了下面的<b>雲端同步</b>，那趟行程會另外存一份在雲端資料庫，讓多人多裝置共用。</p>
 
     <p><b>換手機／分享給同行者</b><br>
     在原裝置按「匯出這趟」或「匯出全部」，把 .json 檔傳給對方，對方按「匯入」即可。</p>
+
+    <p><b>雲端同步（跨裝置／多人共用）</b><br>
+    在「總覽」最上方按<b>「建立共用空間」</b>，設一組<b>空間名稱</b>與<b>一組密碼</b>。
+    這個空間底下裝你<b>所有旅程</b>——任何裝置輸入這兩個，看到的就是全部內容與編輯紀錄，
+    之後新增旅程不用再設定，自動同步（約 15 秒內）。<br>
+    同行者拿到空間名稱與密碼，就能在他們自己的手機上看到並一起編輯。<br>
+    不建立共用空間的話，資料就只留在自己的裝置上。<br>
+    <b>密碼請自己也留一份</b>——這是唯一的解密金鑰，遺失無法還原。</p>
 
     <p><b>多趟旅程</b><br>
     上方下拉可切換旅程。「+ 新旅程」開一趟全新的；「複製」會沿用目前的行李、藥品、行程骨架，但清空支出與紀錄。</p>
@@ -610,6 +623,7 @@ function pgOverview() {
   </div>`;
 
   return `
+  ${typeof cloudPanel === 'function' ? cloudPanel() : ''}
   ${modeBar}
   <div class="card"><div class="hd"><h2>旅程基本資料</h2><span class="note">填了日期就能自動產生每日行程與天氣</span></div><div class="bd">
     <div class="grid g3">
@@ -1603,10 +1617,15 @@ function render() {
 
   const t = S.trip;
   $('#brandTitle').textContent = t.name || '旅行規劃與紀錄工具';
+  const linked = typeof curCloud === 'function' && curCloud();
   $('#brandSub').textContent = (t.mode || '國外') + '旅行　·　' + (t.dest ? t.dest + '　·　' : '') +
-    (t.start ? t.start + ' → ' + (t.end || '?') : '尚未設定日期') + '　·　資料只存在你自己的瀏覽器，不會上傳';
+    (t.start ? t.start + ' → ' + (t.end || '?') : '尚未設定日期') + '　·　' +
+    (linked ? '已連上共用空間「' + linked.id + '」，所有旅程同步中' : '資料只存在你自己的瀏覽器，不會上傳');
   if (typeof tripBar === 'function' && DB) {
-    $('#tripbar').innerHTML = tripBar() + '<span class="savetag" id="saved">' + (LSOK ? '自動儲存已開啟' : '無法自動儲存，請用「匯出備份」') + '</span>';
+    $('#tripbar').innerHTML = tripBar() +
+      '<span class="savetag" id="cloudtag"></span>' +
+      '<span class="savetag" id="saved">' + (LSOK ? '自動儲存已開啟' : '無法自動儲存，請用「匯出備份」') + '</span>';
+    if (typeof updateCloudTag === 'function') updateCloudTag();
   }
   document.title = (t.name || '旅行規劃與紀錄工具');
 
@@ -1642,7 +1661,10 @@ function setMode(m) {
   toast('已切換為 ' + m + '旅行' + (swap ? '（清單已替換）' : ''));
 }
 /* 任何資料變更 → 自動存進 localStorage（防抖） */
-function touch() { if (typeof saveDB === 'function') saveDB(); }
+function touch() {
+  if (typeof saveDB === 'function') saveDB();
+  if (typeof schedulePush === 'function') schedulePush();
+}
 function softRefresh() { }
 
 /* 圖表 hover 提示 */
@@ -1695,7 +1717,9 @@ function init() {
         if (!j || typeof j !== 'object') throw new Error('格式錯誤');
         if (j.kind === 'travelkit-all' && j.db && j.db.trips) {
           if (!confirm('這是「全部旅程」備份檔。要用它取代目前瀏覽器中的所有旅程嗎？')) { ev.target.value = ''; return; }
+          const keepSync = DB.sync;
           DB = j.db;
+          if (keepSync) DB.sync = keepSync; else delete DB.sync;
           if (!DB.prefs) DB.prefs = { myMeds: null };
           if (!Array.isArray(DB.order)) DB.order = Object.keys(DB.trips);
           if (!DB.trips[DB.current]) DB.current = DB.order[0];
@@ -1717,6 +1741,7 @@ function init() {
   initTip();
   render();
   if (S.trip.dest) setTimeout(() => autoWx(), 300);
+  if (typeof cloudInit === 'function') cloudInit();
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
@@ -1731,7 +1756,7 @@ let DB = null;          // { v, current, order:[id], trips:{id:{name,updated,dat
 let LSOK = true;        // 瀏覽器是否允許儲存（無痕模式可能失敗）
 
 function newDB() {
-  return { v: 1, current: '', order: [], trips: {}, prefs: { myMeds: null } };
+  return { v: 1, current: '', order: [], trips: {}, prefs: { myMeds: null } };  // 另有選用的 DB.sync
 }
 function tripLabel(d) {
   const t = (d && d.trip) || {};
@@ -1893,6 +1918,372 @@ function exportAll() {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 3000);
   toast('已下載全部旅程備份');
+}
+/* ============================================================
+   雲端同步（Supabase）—— 一個共用空間，一組密碼，端對端加密
+   ------------------------------------------------------------
+   ★ 設定：把你 Supabase 專案的兩個值貼在下面就好。
+     兩個值都可以公開（anon key 本來就設計成放在前端）。
+
+   概念：
+     「共用空間」= 空間名稱 + 密碼
+     整個工作區（所有旅程 + 個人常備藥設定）加密後存成雲端的一筆。
+     任何裝置輸入同一組空間名稱與密碼，看到的就是同一份全部內容。
+     之後新增旅程不用再設定任何東西，自動進同一個空間。
+
+   加密設計：
+     salt      = SHA-256("travelkit.v1|" + 空間名稱)
+     512 bits  = PBKDF2-SHA256(密碼, salt, 310000 次)
+                 ├─ 前 256 bits → AES-GCM 金鑰，只留在瀏覽器，用來加解密
+                 └─ 後 256 bits → 驗證 token，送給伺服器做 bcrypt 比對
+     · 真正的密碼從不離開瀏覽器
+     · 伺服器與資料庫只看得到密文與驗證 token
+     · 兩把金鑰互相獨立，拿到其中一把推不出另一把
+   ============================================================ */
+const SUPA_URL = '';        // 例如 'https://abcdefghijkl.supabase.co'
+const SUPA_KEY = '';        // 例如 'eyJhbGciOi...'（anon / publishable key）
+
+const CLOUD_ON = !!(SUPA_URL && SUPA_KEY);
+const PULL_MS = 15000;      // 每 15 秒向雲端確認一次
+const PUSH_MS = 3000;       // 停止輸入 3 秒後上傳
+const KDF_ITER = 310000;    // PBKDF2 次數
+
+let CLOUD = { busy: false, err: '', showPass: false };
+let _pushT = null, _pullT = null;
+let _keys = null;           // { key, auth }（只在記憶體）
+let _lastSent = '';         // 上次上傳的內容，沒變就不重傳
+
+function cleanId(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+/* ---------- 加密工具 ---------- */
+const CRYPTO_OK = !!(window.crypto && crypto.subtle && crypto.subtle.deriveBits);
+const te = new TextEncoder(), td = new TextDecoder();
+function b64(u8) { let s = ''; for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return btoa(s); }
+function unb64(s) { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+
+async function keysFor(id, pass) {
+  if (_keys && _keys.id === id && _keys.pass === pass) return _keys;
+  const salt = new Uint8Array(await crypto.subtle.digest('SHA-256', te.encode('travelkit.v1|' + id)));
+  const base = await crypto.subtle.importKey('raw', te.encode(pass), 'PBKDF2', false, ['deriveBits']);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: salt, iterations: KDF_ITER, hash: 'SHA-256' }, base, 512));
+  const key = await crypto.subtle.importKey('raw', bits.slice(0, 32), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  _keys = { id: id, pass: pass, key: key, auth: b64(bits.slice(32)) };
+  return _keys;
+}
+async function encJson(key, obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, te.encode(JSON.stringify(obj)));
+  return { e: 1, iv: b64(iv), ct: b64(new Uint8Array(ct)) };
+}
+async function decJson(key, box) {
+  if (!box || !box.e) return box;
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(box.iv) }, key, unb64(box.ct));
+  return JSON.parse(td.decode(pt));
+}
+
+/* ---------- Supabase RPC ---------- */
+async function supaRpc(fn, args) {
+  const r = await fetch(SUPA_URL.replace(/\/$/, '') + '/rest/v1/rpc/' + fn, {
+    method: 'POST',
+    headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args)
+  });
+  const txt = await r.text();
+  let j = null; try { j = txt ? JSON.parse(txt) : null; } catch (e) { }
+  if (!r.ok) throw new Error((j && (j.message || j.hint)) || ('HTTP ' + r.status));
+  return j;
+}
+
+/* ---------- 同步設定 ---------- */
+function curCloud() { return (DB && DB.sync) || null; }
+function setCloud(v) { if (!DB) return; if (v) DB.sync = v; else delete DB.sync; saveDB(true); }
+function cloudReady() {
+  if (!CLOUD_ON) { toast('尚未設定 Supabase，請見 README'); return false; }
+  if (!CRYPTO_OK) { toast('雲端同步需要 https 網址才能運作'); return false; }
+  return true;
+}
+
+/* 整個工作區（不含同步設定本身；天氣快取各裝置自己抓） */
+function workspace() {
+  const trips = {};
+  DB.order.forEach(id => {
+    const t = DB.trips[id]; if (!t) return;
+    const d = JSON.parse(JSON.stringify(t.data));
+    if (d.wx) d.wx.days = [];
+    trips[id] = { name: t.name, updated: t.updated, data: d };
+  });
+  return { v: 1, order: DB.order.slice(), current: DB.current, trips: trips, prefs: DB.prefs || {} };
+}
+
+function applyWorkspace(w) {
+  if (!w || !w.trips) throw new Error('雲端資料格式不符');
+  const keepWx = {};
+  DB.order.forEach(id => { const t = DB.trips[id]; if (t && t.data && t.data.wx) keepWx[id] = t.data.wx; });
+  DB.trips = {};
+  (w.order || Object.keys(w.trips)).forEach(id => {
+    const t = w.trips[id]; if (!t) return;
+    const data = normalize(t.data);
+    if (keepWx[id] && keepWx[id].days && keepWx[id].days.length) data.wx = keepWx[id];
+    DB.trips[id] = { name: t.name || tripLabel(data), updated: t.updated || nowIso(), data: data };
+  });
+  DB.order = (w.order || Object.keys(w.trips)).filter(id => DB.trips[id]);
+  if (!DB.order.length) { const id = uid(); DB.trips[id] = { name: '', updated: nowIso(), data: freshTrip() }; DB.order = [id]; }
+  if (!DB.trips[DB.current]) DB.current = w.current && DB.trips[w.current] ? w.current : DB.order[0];
+  DB.prefs = w.prefs || DB.prefs || { myMeds: null };
+  S = DB.trips[DB.current].data;
+}
+
+/* ---------- 建立共用空間 ---------- */
+async function cloudCreate() {
+  if (!cloudReady()) return;
+  const raw = prompt('設定「共用空間名稱」——同行者要輸入這組才找得到你的資料。\n\n' +
+    '· 取好記的即可，例如 GARCIAFAMILY\n' +
+    '· 4～24 個英文字母或數字（自動轉大寫）\n' +
+    '· 全世界不能重複，若已被使用會請你換一組', 'GARCIA' + new Date().getFullYear());
+  if (raw === null) return;
+  const id = cleanId(raw);
+  if (id.length < 4 || id.length > 24) { toast('空間名稱請用 4～24 個英數字'); return; }
+  const pass = prompt('設定密碼（至少 8 個字）。\n\n' +
+    '以後不管換哪台裝置、有幾趟旅程，都只用這一組。\n' +
+    '⚠ 這是唯一的解密金鑰，遺失就永久無法還原，請先自己存一份。', '');
+  if (pass === null) return;
+  if (pass.length < 8) { toast('密碼至少 8 個字'); return; }
+  CLOUD.busy = true; CLOUD.err = ''; render();
+  try {
+    const k = await keysFor(id, pass);
+    const box = await encJson(k.key, workspace());
+    try {
+      await supaRpc('trip_create', { p_code: id, p_pass: k.auth, p_data: box });
+    } catch (e) {
+      if (/duplicate|unique|already/i.test(e.message)) throw new Error('空間名稱「' + id + '」已經有人使用了，請換一組');
+      throw e;
+    }
+    setCloud({ id: id, pass: pass, rev: 1, at: Date.now() });
+    _lastSent = JSON.stringify(workspace());
+    render();
+    alert('共用空間已建立（內容已加密）\n\n空間名稱：' + id + '\n密碼：' + pass +
+      '\n\n把這兩個給同行者，他們在任何裝置輸入，就會看到你目前所有的旅程與編輯紀錄。\n' +
+      '之後你新增的旅程也會自動進到這個空間，不需要再設定。\n\n' +
+      '⚠ 沒有「忘記密碼」可用，弄丟就再也打不開了。');
+  } catch (e) { CLOUD.err = e.message; toast('建立失敗：' + e.message); }
+  finally { CLOUD.busy = false; render(); }
+}
+
+/* ---------- 登入既有空間 ---------- */
+async function cloudOpen(preId, prePass) {
+  if (!cloudReady()) return;
+  const id = cleanId(preId != null ? preId : prompt('輸入共用空間名稱：', ''));
+  if (!id) return;
+  const pass = prePass != null ? prePass : prompt('輸入密碼：', '');
+  if (pass === null) return;
+
+  const localTrips = DB.order.filter(x => {
+    const d = DB.trips[x] && DB.trips[x].data;
+    return d && (d.trip.name || d.trip.dest || d.days.length || d.exp.length);
+  });
+  let merge = false;
+  if (localTrips.length) {
+    merge = confirm('這台裝置目前有 ' + localTrips.length + ' 趟有內容的旅程。\n\n' +
+      '按「確定」＝ 把它們一併帶進共用空間（不會弄丟）\n' +
+      '按「取消」＝ 只使用雲端的內容（這台目前的旅程會被覆蓋，建議先匯出備份）');
+  }
+
+  CLOUD.busy = true; CLOUD.err = ''; render();
+  try {
+    const k = await keysFor(id, pass);
+    const row = await supaRpc('trip_load', { p_code: id, p_pass: k.auth });
+    const r = Array.isArray(row) ? row[0] : row;
+    if (!r) throw new Error('空間名稱或密碼不正確');
+    let w;
+    try { w = await decJson(k.key, r.data); }
+    catch (e) { throw new Error('解密失敗，密碼不正確'); }
+
+    const mine = merge ? localTrips.map(x => ({ name: DB.trips[x].name, updated: DB.trips[x].updated, data: DB.trips[x].data })) : [];
+    applyWorkspace(w);
+    if (mine.length) {
+      mine.forEach(t => {
+        const nid = uid();
+        DB.trips[nid] = { name: t.name, updated: t.updated, data: normalize(t.data) };
+        DB.order.push(nid);
+      });
+    }
+    setCloud({ id: id, pass: pass, rev: r.rev, at: Date.now() });
+    TAB = 'ov'; saveDB(true); render();
+    if (mine.length) { _lastSent = ''; setTimeout(() => cloudPush(true), 60); }   // 等 finally 解除 busy 再上傳
+    else _lastSent = JSON.stringify(workspace());
+    if (S.trip.dest) setTimeout(() => autoWx(), 300);
+    toast('已登入共用空間，共 ' + DB.order.length + ' 趟旅程');
+  } catch (e) { CLOUD.err = e.message; toast('登入失敗：' + e.message); }
+  finally { CLOUD.busy = false; render(); }
+}
+
+/* ---------- 上傳（樂觀鎖） ---------- */
+function schedulePush() {
+  if (!CLOUD_ON || !curCloud()) return;
+  clearTimeout(_pushT);
+  _pushT = setTimeout(() => cloudPush(), PUSH_MS);
+}
+async function cloudPush(force) {
+  const c = curCloud(); if (!c || CLOUD.busy || !CRYPTO_OK) return;
+  const w = workspace(), sig = JSON.stringify(w);
+  if (!force && sig === _lastSent) return;              // 內容沒變就不上傳
+  CLOUD.busy = true; CLOUD.err = '';
+  try {
+    const k = await keysFor(c.id, c.pass);
+    const box = await encJson(k.key, w);
+    const res = await supaRpc('trip_save', { p_code: c.id, p_pass: k.auth, p_data: box, p_rev: force ? -1 : c.rev });
+    const r = Array.isArray(res) ? res[0] : res;
+    if (r && r.conflict) {
+      CLOUD.busy = false;
+      const useRemote = confirm('這個共用空間在其他裝置上也被修改過。\n\n' +
+        '按「確定」＝ 採用雲端版本（會覆蓋你這台的變更）\n' +
+        '按「取消」＝ 用你這台的版本覆蓋雲端');
+      if (useRemote) await cloudPull(true);
+      else { c.rev = r.rev; setCloud(c); await cloudPush(true); }
+      return;
+    }
+    c.rev = (r && r.rev) || c.rev + 1; c.at = Date.now();
+    _lastSent = sig; setCloud(c);
+  } catch (e) { CLOUD.err = e.message; }
+  finally { CLOUD.busy = false; updateCloudTag(); }
+}
+
+/* ---------- 下載 ---------- */
+async function cloudPull(silent) {
+  const c = curCloud(); if (!c || CLOUD.busy || !CRYPTO_OK) return;
+  CLOUD.busy = true;
+  try {
+    const k = await keysFor(c.id, c.pass);
+    const row = await supaRpc('trip_load', { p_code: c.id, p_pass: k.auth });
+    const r = Array.isArray(row) ? row[0] : row;
+    if (!r) throw new Error('讀取失敗');
+    if (r.rev !== c.rev || silent) {
+      const f = document.activeElement;
+      if (f && /INPUT|TEXTAREA|SELECT/.test(f.tagName) && !silent) { CLOUD.busy = false; return; }
+      applyWorkspace(await decJson(k.key, r.data));
+      c.rev = r.rev; c.at = Date.now(); setCloud(c);
+      _lastSent = JSON.stringify(workspace());
+      render();
+      if (!silent) toast('已從雲端更新');
+    }
+    CLOUD.err = '';
+  } catch (e) { CLOUD.err = e.message; }
+  finally { CLOUD.busy = false; updateCloudTag(); }
+}
+
+function cloudLogout() {
+  if (!confirm('在這台裝置登出共用空間？\n\n目前的旅程會留在這台（變成只存本機），之後的修改不會再同步。\n隨時可以再用同一組空間名稱與密碼登入回來。')) return;
+  _keys = null; _lastSent = '';
+  setCloud(null); render(); toast('已登出');
+}
+async function cloudDelete() {
+  const c = curCloud(); if (!c) return;
+  if (!confirm('把整個共用空間「' + c.id + '」從雲端永久刪除？\n\n所有裝置都會讀不到，此動作無法復原。\n（這台裝置的資料會保留）')) return;
+  try {
+    const k = await keysFor(c.id, c.pass);
+    await supaRpc('trip_delete', { p_code: c.id, p_pass: k.auth });
+    _keys = null; _lastSent = '';
+    setCloud(null); render(); toast('已從雲端刪除');
+  } catch (e) { toast('刪除失敗：' + e.message); }
+}
+async function changePass() {
+  const c = curCloud(); if (!c) return;
+  const np = prompt('設定新密碼（至少 8 個字）。\n設定後要重新通知所有同行者。', '');
+  if (np === null) return;
+  if (np.length < 8) { toast('密碼至少 8 個字'); return; }
+  CLOUD.busy = true; render();
+  try {
+    const oldK = await keysFor(c.id, c.pass);
+    const oldAuth = oldK.auth;
+    _keys = null;
+    const newK = await keysFor(c.id, np);
+    const box = await encJson(newK.key, workspace());
+    await supaRpc('trip_repass', { p_code: c.id, p_pass: oldAuth, p_new_pass: newK.auth, p_data: box });
+    c.pass = np; c.rev = c.rev + 1; c.at = Date.now(); setCloud(c);
+    _lastSent = JSON.stringify(workspace());
+    toast('密碼已更新，請通知同行者');
+  } catch (e) { _keys = null; toast('更新失敗：' + e.message); }
+  finally { CLOUD.busy = false; render(); }
+}
+
+function copyShare() {
+  const c = curCloud(); if (!c) return;
+  const url = location.origin + location.pathname + '?s=' + c.id;
+  const txt = '一起用這個旅行工具：\n' + url + '\n共用空間：' + c.id + '\n密碼：' + c.pass;
+  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => toast('已複製分享訊息')).catch(() => prompt('複製這段訊息：', txt));
+  else prompt('複製這段訊息：', txt);
+}
+function togglePass() { CLOUD.showPass = !CLOUD.showPass; render(); }
+
+/* ---------- UI ---------- */
+function updateCloudTag() {
+  const el = $('#cloudtag'); if (!el) return;
+  const c = curCloud();
+  if (!c) { el.textContent = ''; return; }
+  el.textContent = CLOUD.err ? '同步失敗：' + CLOUD.err
+    : (CLOUD.busy ? '同步中…' : '雲端已同步 ' + new Date(c.at || Date.now()).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }));
+  el.className = 'savetag' + (CLOUD.err ? ' bad' : '');
+}
+
+function cloudPanel() {
+  if (!CLOUD_ON) {
+    return `<div class="modebar noprint" style="border-style:dashed">
+      <span class="mlabel">雲端同步</span>
+      <span class="hint">尚未設定。填好 <code>index.html</code> 開頭的 SUPA_URL 與 SUPA_KEY 後，這裡會出現「建立共用空間」。詳見 README。</span>
+    </div>`;
+  }
+  if (!CRYPTO_OK) {
+    return `<div class="modebar noprint" style="border-style:dashed">
+      <span class="mlabel">雲端同步</span>
+      <span class="hint" style="color:var(--warn)">加密功能需要 https 網址才能運作（用 file:// 開啟本機檔案時無法使用）。放到 GitHub Pages 上就正常了。</span>
+    </div>`;
+  }
+  const c = curCloud();
+  if (!c) {
+    return `<div class="modebar noprint">
+      <span class="mlabel">雲端同步</span>
+      <button class="mbtn on" onclick="cloudCreate()" ${CLOUD.busy ? 'disabled' : ''}>建立共用空間</button>
+      <button class="mbtn" onclick="cloudOpen()" ${CLOUD.busy ? 'disabled' : ''}>登入既有空間</button>
+      <span class="hint" style="width:100%;margin-top:2px">
+        一組<b>空間名稱 + 一組密碼</b>，底下裝你<b>所有旅程</b>。任何裝置輸入這兩個就看到全部內容與編輯紀錄；
+        之後新增旅程不用再設定，自動同步。內容<b>端對端加密</b>，密碼不會離開你的瀏覽器。
+      </span>
+    </div>`;
+  }
+  return `<div class="modebar noprint" style="border-color:var(--good)">
+    <span class="mlabel">雲端同步</span>
+    <span class="codebox">${esc(c.id)}</span>
+    <span class="chip good">已加密</span>
+    <span class="chip">${DB.order.length} 趟旅程</span>
+    <button class="btn sm" onclick="copyShare()">複製分享訊息</button>
+    <button class="btn sm" onclick="cloudPull()">立即更新</button>
+    <button class="btn sm" onclick="cloudPush(true)">強制上傳</button>
+    <button class="btn sm" onclick="changePass()">變更密碼</button>
+    <button class="btn sm" onclick="cloudLogout()">登出</button>
+    <button class="btn sm danger" onclick="cloudDelete()">從雲端刪除</button>
+    <span class="hint" style="width:100%;margin-top:2px">
+      密碼：<b>${CLOUD.showPass ? esc(c.pass) : '••••••••'}</b>
+      <button class="btn sm" style="margin-left:4px" onclick="togglePass()">${CLOUD.showPass ? '隱藏' : '顯示'}</button>
+      　·　每 ${PULL_MS / 1000} 秒自動確認一次；你一停止輸入就會上傳。這個空間裡的<b>所有旅程</b>都會一起同步。
+    </span>
+  </div>`;
+}
+
+/* ---------- 啟動 ---------- */
+function cloudInit() {
+  if (!CLOUD_ON) return;
+  const q = new URLSearchParams(location.search).get('s');
+  if (q) {
+    history.replaceState({}, '', location.pathname);
+    const id = cleanId(q);
+    const c = curCloud();
+    if (!c || c.id !== id) setTimeout(() => cloudOpen(id), 400);
+  }
+  clearInterval(_pullT);
+  _pullT = setInterval(() => { if (!document.hidden && curCloud()) cloudPull(); }, PULL_MS);
+  window.addEventListener('focus', () => { if (curCloud()) cloudPull(); });
+  if (curCloud()) cloudPull();
 }
 
 </script>
