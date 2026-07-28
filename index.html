@@ -116,6 +116,13 @@ table.dt input,table.dt select,table.dt textarea{background:transparent;border-c
 table.dt input:hover,table.dt select:hover,table.dt textarea:hover{background:var(--surface-2);border-color:var(--border)}
 table.dt input:focus,table.dt select:focus,table.dt textarea:focus{background:var(--surface-1)}
 td.ctr{text-align:center}
+th.sortable{cursor:pointer;user-select:none;transition:.12s}
+th.sortable:hover{color:var(--text-primary);background:var(--surface-3)}
+th.sortable.on{color:var(--accent)}
+.daytag{display:inline-block;margin-left:4px;font-size:10.5px;padding:1px 6px;border-radius:999px;
+  background:var(--surface-3);color:var(--text-secondary);vertical-align:middle;white-space:nowrap}
+@keyframes rowflash{0%{background:var(--accent-soft)}70%{background:var(--accent-soft)}100%{background:transparent}}
+table.dt tr.flash td,.lugitem.flash{animation:rowflash 2.2s ease-out}
 .rowdel{background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px 6px;border-radius:5px;font-size:15px;line-height:1}
 .rowdel:hover{color:var(--crit);background:var(--surface-3)}
 .locked{color:var(--text-muted);font-size:15px;padding:2px 6px;cursor:default}
@@ -175,6 +182,30 @@ dialog.helpbox h3{font-size:16px;margin-bottom:10px}
 .pbar .pl span{color:var(--text-secondary);font-variant-numeric:tabular-nums}
 .ptrack{height:7px;border-radius:99px;background:var(--surface-3);overflow:hidden}
 .pfill{height:100%;border-radius:99px;background:var(--s1);transition:width .2s}
+
+/* ---------- 行李：卡片式，手機也看得清楚 ---------- */
+.luglist{border-top:1px solid var(--border)}
+.lugitem{display:flex;flex-wrap:wrap;gap:7px 10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--border)}
+.lugitem:last-child{border-bottom:none}
+.lugitem.done{opacity:.5}
+.lugitem input.lugchk{flex:none;width:20px;height:20px;margin:0}
+.lugitem input.lugname{flex:1 1 120px;width:auto;min-width:0;font-size:14px}
+.lugitem input.lugqty{flex:none;width:56px;text-align:center;font-size:13.5px}
+.lugitem .lugdel{flex:none;font-size:17px;padding:4px 6px;margin-left:auto}
+.lugmeta{flex:1 1 100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-left:30px}
+.lugmeta select{width:auto;min-width:92px;max-width:130px;font-size:12.5px;padding:4px 7px}
+.sortbar{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-bottom:12px;
+  padding:8px 10px;background:var(--surface-2);border:1px solid var(--border);border-radius:9px}
+.sortbtn{background:var(--surface-1);border:1px solid var(--border);color:var(--text-secondary);
+  border-radius:7px;padding:4px 11px;cursor:pointer;font-size:12.5px;white-space:nowrap;transition:.12s}
+.sortbtn:hover{border-color:var(--border-strong);color:var(--text-primary)}
+.sortbtn.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:650}
+.lugcarry{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--text-secondary);white-space:nowrap}
+.lugcarry input{width:17px;height:17px}
+@media(min-width:761px){
+  .lugmeta{flex:0 1 auto;order:5;padding-left:0}
+  .lugitem .lugdel{order:9;margin-left:0}
+}
 .wxrow{display:flex;gap:9px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
 .wxcard{flex:0 0 auto;min-width:104px;border:1px solid var(--border);border-radius:9px;padding:9px 11px;background:var(--surface-2)}
 .wxcard.on{border-color:var(--accent);background:var(--accent-soft)}
@@ -238,8 +269,16 @@ details.acc>div{padding:0 13px 12px}
   .modebar{padding:9px 11px}
   .card>.hd{padding:11px 13px}
   .card>.bd{padding:12px 13px}
-  .stat .v{font-size:20px}
+  .g3,.g4{grid-template-columns:1fr 1fr;gap:8px}
+  .stat{padding:10px 11px}
+  .stat .v{font-size:18px}
+  .stat .k,.stat .m{font-size:11px}
   dialog.helpbox .hb{padding:16px}
+  /* 其他分頁的表格：寧可左右捲動，也不要擠成看不懂 */
+  table.dt{min-width:660px}
+  table.dt td{padding:6px 5px}
+  table.dt input,table.dt select,table.dt textarea{font-size:14px}
+  .tblwrap{-webkit-overflow-scrolling:touch}
 }
 </style>
 </head>
@@ -498,7 +537,16 @@ function upd(mod, id, key, val, rr) {
   if (rr) renderSoon();
 }
 function updTrip(key, val, rr) { S.trip[key] = val; touch(); if (rr) renderSoon(); }
-function addRow(mod, tpl) { S[mod].push(mk(tpl || {})); touch(); render(); }
+let NEWROW = '';
+function addRow(mod, tpl) {
+  const r = mk(tpl || {});
+  S[mod].push(r); NEWROW = r.id; touch(); render();
+  setTimeout(() => {
+    const el = document.querySelector(`[data-i="${r.id}"]`);
+    if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (el.focus) el.focus(); }
+    NEWROW = '';
+  }, 60);
+}
 function delRow(mod, id) {
   const r = findRow(mod, id); if (!r) return;
   if (r.lock && !confirm('「' + (r.name || '這一項') + '」是標記為 ★ 的常備項目，確定刪除？')) return;
@@ -529,18 +577,55 @@ function cell(mod, row, c) {
   }
 }
 
+/* ---------- 欄位排序（所有表格通用）---------- */
+const SORT = {};
+function setSort(mod, k) {
+  const s = SORT[mod];
+  if (s && s.k === k) {
+    if (s.dir === 1) s.dir = -1;
+    else delete SORT[mod];                 // 第三次點擊回到預設順序
+  } else SORT[mod] = { k: k, dir: 1 };
+  render();
+}
+function blank(v) { return v === null || v === undefined || String(v).trim() === ''; }
+function sortRows(mod, cols, rows) {
+  const s = SORT[mod]; if (!s) return rows;
+  const c = cols.filter(x => x.k === s.k)[0]; if (!c) return rows;
+  const n = v => { const x = parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return isFinite(x) ? x : null; };
+  return rows.slice().sort((a, b) => {
+    const A = a[s.k], B = b[s.k];
+    if (c.t === 'chk') return (((B ? 1 : 0) - (A ? 1 : 0)) || 0) * s.dir;
+    const ea = blank(A), eb = blank(B);
+    if (ea !== eb) return ea ? 1 : -1;      // 空白一律排最後，不受升降序影響
+    if (ea && eb) return 0;
+    if (c.t === 'num') return ((n(A) || 0) - (n(B) || 0)) * s.dir;
+    return String(A).localeCompare(String(B), 'zh-Hant') * s.dir;
+  });
+}
+
 function table(mod, cols, rows, opt) {
   opt = opt || {};
-  const head = cols.map(c => `<th${c.w ? ` style="width:${c.w}"` : ''}${c.t === 'chk' ? ' class="ctr"' : ''}>${esc(c.l)}</th>`).join('');
+  rows = sortRows(mod, cols, rows);
+  const cur = SORT[mod];
+  const head = cols.map(c => {
+    const on = cur && cur.k === c.k;
+    const arrow = on ? (cur.dir === 1 ? ' ▲' : ' ▼') : '';
+    return `<th${c.w ? ` style="width:${c.w}"` : ''} class="sortable${c.t === 'chk' ? ' ctr' : ''}${on ? ' on' : ''}"` +
+      ` title="點擊排序" onclick="setSort('${mod}','${c.k}')">${esc(c.l)}${arrow}</th>`;
+  }).join('');
   if (!rows.length) return `<div class="empty">${esc(opt.empty || '尚無項目，點「新增」開始')}</div>`;
   const body = rows.map(r => {
     const cls = [];
     if (opt.doneKey && r[opt.doneKey]) cls.push('done');
     if (r.lock) cls.push('pin');
+    if (r.id === NEWROW) cls.push('flash');
     const star = mod === 'meds'
       ? `<button class="rowdel star ${r.lock ? 'on' : ''}" title="${r.lock ? '取消「常備」標記' : '標為常備（可存成個人預設，每趟自動帶入）'}" onclick="toggleLock('${r.id}')">${r.lock ? '★' : '☆'}</button>`
       : '';
-    return `<tr class="${cls.join(' ')}">` + cols.map(c => cell(mod, r, c)).join('') +
+    const cells = cols.map(c => cell(mod, r, c));
+    const tag = opt.tag ? opt.tag(r) : '';
+    if (tag) cells[0] = cells[0].replace(/<\/td>$/, tag + '</td>');
+    return `<tr class="${cls.join(' ')}">` + cells.join('') +
       `<td class="ctr noprint" style="white-space:nowrap">${star}<button class="rowdel" title="刪除" onclick="delRow('${mod}','${r.id}')">×</button></td></tr>`;
   }).join('');
   return `<div class="tblwrap"><table class="dt"><thead><tr>${head}<th style="width:${mod === 'meds' ? 62 : 34}px" class="noprint"></th></tr></thead><tbody>${body}</tbody></table></div>`;
@@ -850,19 +935,70 @@ function splitLuggageByPerson() {
   toast('已依 ' + ppl.length + ' 位成員展開個人清單');
 }
 
+let LUGSORT = { k: '', dir: 1 };
+function setLugSort(k) {
+  if (LUGSORT.k === k) {
+    if (LUGSORT.dir === 1) LUGSORT.dir = -1;
+    else { LUGSORT.k = ''; LUGSORT.dir = 1; }   // 第三次點擊回到預設
+  } else { LUGSORT.k = k; LUGSORT.dir = 1; }
+  render();
+}
+function zhCmp(a, b) { return String(a || '').localeCompare(String(b || ''), 'zh-Hant'); }
+function lugSorted(list) {
+  const k = LUGSORT.k, d = LUGSORT.dir;
+  if (!k) return list;
+  const ppl = lugPeople();
+  const whoRank = x => {
+    const w = lugWhoOf(x);
+    if (w === '共用') return -1;
+    if (w === '未指定') return 9999;
+    const i = ppl.indexOf(w);
+    return i < 0 ? 5000 : i;
+  };
+  const cmp = {
+    who: (a, b) => (whoRank(a) - whoRank(b)) || zhCmp(a.name, b.name),
+    cat: (a, b) => (LUGCAT.indexOf(a.cat) - LUGCAT.indexOf(b.cat)) || zhCmp(a.name, b.name),
+    name: (a, b) => zhCmp(a.name, b.name),
+    carry: (a, b) => ((b.carry ? 1 : 0) - (a.carry ? 1 : 0)) || zhCmp(a.name, b.name),
+    packed: (a, b) => ((a.packed ? 1 : 0) - (b.packed ? 1 : 0)) || zhCmp(a.name, b.name)
+  }[k];
+  return list.slice().sort((a, b) => cmp(a, b) * d);
+}
+function lugSortBar() {
+  const keys = [['who', '誰的'], ['cat', '分類'], ['name', '品項'], ['carry', '隨身'], ['packed', '打包狀態']];
+  const btns = keys.map(([k, label]) => {
+    const on = LUGSORT.k === k;
+    return `<button class="sortbtn ${on ? 'on' : ''}" onclick="setLugSort('${k}')">${esc(label)}${on ? (LUGSORT.dir === 1 ? ' ▲' : ' ▼') : ''}</button>`;
+  }).join('');
+  return `<div class="sortbar noprint">
+    <span class="mlabel">排序</span>
+    <button class="sortbtn ${!LUGSORT.k ? 'on' : ''}" onclick="setLugSort('')">預設（依分類）</button>
+    ${btns}
+  </div>`;
+}
+
+function lugRow(x, owners) {
+  const opt = (v, list) => list.map(o => `<option ${o === (v || '未指定') ? 'selected' : ''}>${esc(o)}</option>`).join('');
+  return `<div class="lugitem${x.packed ? ' done' : ''}${x.id === NEWROW ? ' flash' : ''}">
+    <input type="checkbox" class="lugchk" ${x.packed ? 'checked' : ''} title="已打包"
+      onchange="upd('luggage','${x.id}','packed',this.checked?1:0,true)">
+    <input type="text" class="lugname" value="${esc(x.name)}" placeholder="品項名稱"
+      data-m="luggage" data-i="${x.id}" data-k="name" oninput="upd('luggage','${x.id}','name',this.value,false)">
+    <input type="text" class="lugqty" value="${esc(x.qty)}" placeholder="數量"
+      data-m="luggage" data-i="${x.id}" data-k="qty" oninput="upd('luggage','${x.id}','qty',this.value,false)">
+    <button class="rowdel lugdel" title="刪除" onclick="delRow('luggage','${x.id}')">×</button>
+    <div class="lugmeta">
+      <select title="誰的" onchange="upd('luggage','${x.id}','who',this.value==='未指定'?'':this.value,true)">${opt(x.who, owners)}</select>
+      <select title="分類" onchange="upd('luggage','${x.id}','cat',this.value,true)">${opt(x.cat, LUGCAT)}</select>
+      <label class="lugcarry"><input type="checkbox" ${x.carry ? 'checked' : ''}
+        onchange="upd('luggage','${x.id}','carry',this.checked?1:0,false)"> 隨身</label>
+    </div>
+  </div>`;
+}
+
 function pgLuggage() {
   const owners = lugOwners();
-  const cols = [
-    { k: 'packed', t: 'chk', l: '去程✓', w: '52px' },
-    { k: 'back', t: 'chk', l: '回程✓', w: '52px' },
-    { k: 'who', t: 'sel', l: '誰的', o: owners, w: '100px', rr: true },
-    { k: 'cat', t: 'sel', l: '分類', o: LUGCAT, w: '80px', rr: true },
-    { k: 'name', t: 'text', l: '品項' },
-    { k: 'qty', t: 'text', l: '數量', w: '70px' },
-    { k: 'carry', t: 'chk', l: '隨身', w: '48px' }
-  ];
 
-  /* 每位持有者的進度 */
   const groups = {};
   S.luggage.forEach(x => { const w = lugWhoOf(x); (groups[w] = groups[w] || []).push(x); });
   const order = ['共用'].concat(lugPeople()).concat(Object.keys(groups).filter(k => k !== '共用' && lugPeople().indexOf(k) < 0));
@@ -875,14 +1011,22 @@ function pgLuggage() {
   }).join('');
 
   const list = LUGWHO === '全部' ? S.luggage : (groups[LUGWHO] || []);
-  const byCat = LUGCAT.map(c => {
-    const rows = list.filter(x => x.cat === c);
-    if (!rows.length) return '';
-    const p = rows.filter(x => x.packed).length;
-    return `<details class="acc" open><summary>${esc(c)} <span class="chip">${p}/${rows.length}</span></summary><div>${table('luggage', cols, rows, { doneKey: 'packed' })}</div></details>`;
-  }).join('');
+  let body;
+  if (LUGSORT.k) {                                   // 有排序 → 攤平成單一清單
+    const rows = lugSorted(list);
+    body = rows.length ? `<div class="luglist" style="border-top:none">${rows.map(x => lugRow(x, owners)).join('')}</div>` : '';
+  } else {                                           // 預設 → 依分類分組
+    body = LUGCAT.map(c => {
+      const rows = list.filter(x => x.cat === c);
+      if (!rows.length) return '';
+      const p = rows.filter(x => x.packed).length;
+      return `<details class="acc" open><summary>${esc(c)} <span class="chip">${p}/${rows.length}</span></summary>
+        <div class="luglist">${rows.map(x => lugRow(x, owners)).join('')}</div></details>`;
+    }).join('');
+  }
+  const byCat = body;
 
-  const total = S.luggage.length, packedN = S.luggage.filter(x => x.packed).length, backN = S.luggage.filter(x => x.back).length;
+  const total = S.luggage.length, packedN = S.luggage.filter(x => x.packed).length;
   const perPerson = shown.map(w => {
     const rows = groups[w], p = rows.filter(x => x.packed).length;
     const pct = rows.length ? Math.round(p / rows.length * 100) : 0;
@@ -892,9 +1036,9 @@ function pgLuggage() {
 
   return `
   <div class="grid g3" style="margin-bottom:18px">
-    ${stat('去程打包', packedN + ' / ' + total, total ? Math.round(packedN / total * 100) + '%' : '')}
-    ${stat('回程檢查', backN + ' / ' + total, '離開住宿前逐項確認，避免遺留')}
-    ${stat('隨身項目', S.luggage.filter(x => x.carry).length + ' 項', INTL() ? '含針劑、行動電源、證件' : '含針劑、證件、健保卡')}
+    ${stat('打包進度', packedN + ' / ' + total, total ? Math.round(packedN / total * 100) + '% 完成' : '')}
+    ${stat('隨身項目', S.luggage.filter(x => x.carry).length + ' 項', INTL() ? '不可託運' : '不放後車廂')}
+    ${stat('共用物品', (groups['共用'] || []).length + ' 項', '大家一起帶一份')}
   </div>
 
   ${perPerson ? `<div class="card"><div class="hd"><h2>各人打包進度</h2></div><div class="bd">${perPerson}</div></div>` : ''}
@@ -904,9 +1048,10 @@ function pgLuggage() {
     <button class="btn sm noprint" onclick="splitLuggageByPerson()" title="把未指定的個人物品複製給每位成員">依成員展開</button>
     ${addBtn('luggage', { cat: '其他', qty: '1', who: '' }, '新增品項')}</div>
     <div class="bd">
-      <div class="modebar noprint" style="margin-bottom:14px;box-shadow:none">
+      <div class="modebar noprint" style="margin-bottom:10px;box-shadow:none">
         <span class="mlabel">依成員檢視</span>${tabs}
       </div>
+      ${lugSortBar()}
       ${lugPeople().length < 2 ? '<div class="hint" style="margin-bottom:10px">※ 到「同行人物」填好姓名後，這裡就會出現每個人的分頁；按「依成員展開」可把個人物品自動複製成每人一份。</div>' : ''}
       ${byCat || '<div class="empty">這個分類下沒有品項</div>'}
     </div>
@@ -1368,6 +1513,14 @@ function wxTable(days) {
 /* ============================================================
    支出
    ============================================================ */
+/* 新增支出預設今天 —— 旅館預付、機票訂金這些本來就在旅程之前 */
+function expDefaultDate() { return today(); }
+
+/* 落在旅程日期之外的支出（行前預付 / 行後結清） */
+function isPreTrip(e) { return !!(S.trip.start && e.date && e.date < S.trip.start); }
+function isPostTrip(e) { return !!(S.trip.end && e.date && e.date > S.trip.end); }
+function isOutside(e) { return isPreTrip(e) || isPostTrip(e); }
+
 function expTWD(e) {
   const a = num(e.amt);
   if (!INTL()) return a;               // 國內：全部台幣
@@ -1389,6 +1542,8 @@ function pgExp() {
     { k: 'note', t: 'text', l: '備註', w: '16%' }
   ]);
   const total = S.exp.reduce((a, e) => a + expTWD(e), 0);
+  const outAmt = S.exp.filter(isOutside).reduce((a, e) => a + expTWD(e), 0);
+  const inAmt = total - outAmt;
   const bud = num(S.trip.budget);
   const nd = S.days.length || (S.trip.start && S.trip.end ? daysBetween(S.trip.start, S.trip.end) + 1 : 0);
 
@@ -1402,18 +1557,23 @@ function pgExp() {
   <div class="grid g4" style="margin-bottom:18px">
     ${stat('總花費 TWD', fmt(total), S.exp.length + ' 筆')}
     ${stat('預算剩餘', bud ? fmt(bud - total) : '—', bud ? '預算 ' + fmt(bud) + '　已用 ' + Math.round(total / bud * 100) + '%' : '尚未設定預算')}
-    ${stat('平均每日', nd ? fmt(total / nd) : '—', nd ? nd + ' 天' : '')}
-    ${stat('最大宗', topCat(), '')}
+    ${stat('平均每日', nd ? fmt(inAmt / nd) : '—', nd ? '旅程 ' + nd + ' 天，不含行前／行後' : '')}
+    ${outAmt ? stat('行前／行後', fmt(outAmt), '預付訂金、回國後結清等') : stat('最大宗', topCat(), '')}
   </div>
 
   <div class="card"><div class="hd"><h2>花費分析</h2><span class="note">數值皆為換算後台幣</span></div><div class="bd">
     ${S.exp.length ? `<div class="chartrow">${donutCat(total)}${barDaily()}</div>` : '<div class="empty">新增第一筆支出後就會出現圖表</div>'}
   </div></div>
 
+  ${outAmt ? `<div class="hint" style="margin:-6px 0 14px">※ 有 ${S.exp.filter(isOutside).length} 筆支出落在旅程日期之外（例如旅館預付），會標記為「行前」或「行後」，並排除在「平均每日」之外，但仍計入總花費與預算。</div>` : ''}
+
   <div class="card"><div class="hd"><h2>支出明細</h2>
     <span class="note">${intl ? '1 ' + esc(cur) + ' = ' + esc(S.trip.rate || '?') + ' TWD' : '全部以新台幣記帳'}</span><span class="spacer"></span>
-    ${addBtn('exp', { date: today(), cat: '餐飲', item: '', amt: '', cur: cur, pay: '現金', who: '', note: '' }, '新增支出')}</div><div class="bd flush">
-    ${table('exp', cols, S.exp.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))), { empty: '尚無支出紀錄' })}
+    ${addBtn('exp', { date: expDefaultDate(), cat: '餐飲', item: '', amt: '', cur: cur, pay: '現金', who: '', note: '' }, '新增支出')}</div><div class="bd flush">
+    ${table('exp', cols, S.exp.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))), {
+      empty: '尚無支出紀錄',
+      tag: e => isPreTrip(e) ? '<span class="daytag">行前</span>' : (isPostTrip(e) ? '<span class="daytag">行後</span>' : '')
+    })}
   </div></div>
 
   ${whoKeys.length > 1 ? `<div class="card"><div class="hd"><h2>分帳結算</h2><span class="note">以平均分攤計算</span></div><div class="bd flush">
