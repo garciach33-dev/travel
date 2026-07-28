@@ -1940,8 +1940,8 @@ function exportAll() {
      · 伺服器與資料庫只看得到密文與驗證 token
      · 兩把金鑰互相獨立，拿到其中一把推不出另一把
    ============================================================ */
-const SUPA_URL = '';        // 例如 'https://abcdefghijkl.supabase.co'
-const SUPA_KEY = '';        // 例如 'eyJhbGciOi...'（anon / publishable key）
+const SUPA_URL = 'https://rajdqtzpcubtepqejzuy.supabase.co';        // 例如 'https://abcdefghijkl.supabase.co'
+const SUPA_KEY = 'sb_publishable_5POZ9fIkr9PkSb6GHmc8Ag_c4DY7Ygb';        // 例如 'eyJhbGciOi...'（anon / publishable key）
 
 const CLOUD_ON = !!(SUPA_URL && SUPA_KEY);
 const PULL_MS = 15000;      // 每 15 秒向雲端確認一次
@@ -2009,10 +2009,13 @@ function supaHint(msg) {
 async function supaRpc(fn, args) {
   const base = supaBase();
   if (!base) throw new Error('尚未設定 SUPA_URL');
+  const key = String(SUPA_KEY || '').trim();
+  const h = { 'apikey': key, 'Content-Type': 'application/json' };
+  // 舊版 anon key 是 JWT（eyJ 開頭），需要一併帶 Authorization；
+  // 新版 sb_publishable_ 金鑰不是 JWT，帶了反而會被當成無效的 JWT 擋下。
+  if (/^eyJ/.test(key)) h['Authorization'] = 'Bearer ' + key;
   const r = await fetch(base + '/rest/v1/rpc/' + fn, {
-    method: 'POST',
-    headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify(args)
+    method: 'POST', headers: h, body: JSON.stringify(args)
   });
   const txt = await r.text();
   let j = null; try { j = txt ? JSON.parse(txt) : null; } catch (e) { }
