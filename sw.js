@@ -1,6 +1,6 @@
 /* 旅行規劃與紀錄工具 — 離線快取
    更新網站內容後，請把 VERSION 加 1，使用者下次連線就會自動更新。 */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'travelkit-' + VERSION;
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
