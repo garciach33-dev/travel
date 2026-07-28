@@ -2276,12 +2276,8 @@ function cloudPanel() {
       <span class="mlabel">雲端同步</span>
       <button class="mbtn on" onclick="cloudCreate()" ${CLOUD.busy ? 'disabled' : ''}>建立共用空間</button>
       <button class="mbtn" onclick="cloudOpen()" ${CLOUD.busy ? 'disabled' : ''}>登入既有空間</button>
-      <span class="hint" style="width:100%;margin-top:2px">
-        一組<b>空間名稱 + 一組密碼</b>，底下裝你<b>所有旅程</b>。任何裝置輸入這兩個就看到全部內容與編輯紀錄；
-        之後新增旅程不用再設定，自動同步。內容<b>端對端加密</b>，密碼不會離開你的瀏覽器。<br>
-        伺服器：<code>${esc(supaBase())}</code>
-      </span>
-      ${CLOUD.err ? `<span class="hint" style="width:100%;color:var(--crit)">${esc(CLOUD.err)}</span>` : ''}
+      ${CLOUD.err ? `<span class="hint" style="width:100%;margin-top:2px;color:var(--crit)">${esc(CLOUD.err)}
+        <br><span style="color:var(--text-muted)">伺服器：${esc(supaBase())}</span></span>` : ''}
     </div>`;
   }
   return `<div class="modebar noprint" style="border-color:var(--good)">
