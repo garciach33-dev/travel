@@ -1,6 +1,7 @@
 /* 旅行規劃與紀錄工具 — 離線快取
-   更新網站內容後，請把 VERSION 加 1，使用者下次連線就會自動更新。 */
-const VERSION = 'v2';
+   網頁本體採「網路優先」，更新 index.html 後使用者連線即會拿到新版，
+   不需要改下面的 VERSION。VERSION 只用於清除圖示等靜態檔的舊快取。 */
+const VERSION = 'v3';
 const CACHE = 'travelkit-' + VERSION;
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
