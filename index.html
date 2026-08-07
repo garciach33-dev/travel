@@ -46,6 +46,7 @@ button{font-family:inherit;font-size:inherit}
 
 /* ---------- layout ---------- */
 .wrap{max-width:1240px;margin:0 auto;padding:0 18px 80px}
+.wrap.bannerwrap{padding-bottom:0}
 header.top{
   position:sticky;top:0;z-index:50;background:var(--bg);
   border-bottom:1px solid var(--border);
@@ -119,6 +120,12 @@ td.ctr{text-align:center}
 th.sortable{cursor:pointer;user-select:none;transition:.12s}
 th.sortable:hover{color:var(--text-primary);background:var(--surface-3)}
 th.sortable.on{color:var(--accent)}
+.banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px;
+  padding:11px 15px;border-radius:var(--radius);font-size:13px;line-height:1.6;border:1px solid}
+.banner.warn{background:var(--accent-soft);border-color:var(--accent);color:var(--text-primary)}
+.banner.bad{background:transparent;border-color:var(--crit);color:var(--crit)}
+.banner .btn{margin-left:auto}
+.banner .btn + .btn{margin-left:0}
 .daytag{display:inline-block;margin-left:4px;font-size:10.5px;padding:1px 6px;border-radius:999px;
   background:var(--surface-3);color:var(--text-secondary);vertical-align:middle;white-space:nowrap}
 @keyframes rowflash{0%{background:var(--accent-soft)}70%{background:var(--accent-soft)}100%{background:transparent}}
@@ -302,6 +309,7 @@ details.acc>div{padding:0 13px 12px}
   <nav class="tabs" id="tabs"></nav>
 </header>
 
+<div class="wrap bannerwrap"><div id="banner" class="noprint"></div></div>
 <div class="wrap" id="pages"></div>
 <div class="tip" id="tip"></div>
 <div class="toast" id="toast"></div>
@@ -316,6 +324,15 @@ details.acc>div{padding:0 13px 12px}
 
     <p><b>換手機／分享給同行者</b><br>
     在原裝置按「匯出這趟」或「匯出全部」，把 .json 檔傳給對方，對方按「匯入」即可。</p>
+
+    <p><b>換裝置怎麼一次搞定</b><br>
+    建立共用空間後，按面板上的<b>「複製登入連結」</b>，會得到一段像
+    <code>…/travel/#s=空間名稱&amp;k=密碼</code> 的網址。<br>
+    把這段存成書籤、或用瀏覽器「加入主畫面」，之後在<b>任何裝置點開就直接進去</b>，不用輸入任何東西。
+    密碼放在 <code>#</code> 之後，<b>永遠不會送到伺服器</b>，只在你的瀏覽器裡用來解密。<br>
+    這條連結等於你的鑰匙，別公開張貼；要給不同人不同權限時，改用「複製空間與密碼」分開傳。<br>
+    萬一哪天打開發現是空白的，畫面最上方會出現藍色提示條告訴你「尚未連上共用空間」並附登入按鈕，
+    不會讓你誤以為資料不見了。</p>
 
     <p><b>雲端同步（跨裝置／多人共用）</b><br>
     在「總覽」最上方按<b>「建立共用空間」</b>，設一組<b>空間名稱</b>與<b>一組密碼</b>。
@@ -1787,6 +1804,8 @@ function render() {
       '<span class="savetag" id="saved">' + (LSOK ? '自動儲存已開啟' : '無法自動儲存，請用「匯出備份」') + '</span>';
     if (typeof updateCloudTag === 'function') updateCloudTag();
   }
+  const bn = $('#banner');
+  if (bn) bn.innerHTML = (typeof cloudBanner === 'function') ? cloudBanner() : '';
   document.title = (t.name || '旅行規劃與紀錄工具');
 
   if (key) {
@@ -2115,6 +2134,30 @@ let _lastSent = '';         // 上次上傳的內容，沒變就不重傳
 
 function cleanId(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
 
+/* 從網址取出空間名稱／密碼。密碼放在 # 之後，永遠不會送到任何伺服器。 */
+function urlParams() {
+  const q = new URLSearchParams(location.search);
+  const h = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+  return { s: cleanId(h.get('s') || q.get('s') || ''), k: h.get('k') || '' };
+}
+/* 登入成功後把空間名稱寫回網址，這樣書籤／主畫面捷徑本身就帶著身分 */
+function stampUrl(id) {
+  try { history.replaceState({}, '', location.pathname + (id ? '#s=' + encodeURIComponent(id) : '')); } catch (e) { }
+}
+function loginLink(withPass) {
+  const c = curCloud(); if (!c) return '';
+  return location.origin + location.pathname + '#s=' + encodeURIComponent(c.id) +
+    (withPass ? '&k=' + encodeURIComponent(c.pass) : '');
+}
+function copyLink(withPass) {
+  const url = loginLink(withPass); if (!url) return;
+  const msg = withPass
+    ? '旅行工具（點開即可直接使用，網址已含密碼，請勿公開張貼）：\n' + url
+    : '旅行工具：\n' + url + '\n密碼另外給你';
+  if (navigator.clipboard) navigator.clipboard.writeText(msg).then(() => toast(withPass ? '已複製免密碼登入連結' : '已複製登入連結')).catch(() => prompt('複製這段：', msg));
+  else prompt('複製這段：', msg);
+}
+
 /* ---------- 加密工具 ---------- */
 const CRYPTO_OK = !!(window.crypto && crypto.subtle && crypto.subtle.deriveBits);
 const te = new TextEncoder(), td = new TextDecoder();
@@ -2252,7 +2295,7 @@ async function cloudCreate() {
     }
     setCloud({ id: id, pass: pass, rev: 1, at: Date.now() });
     _lastSent = JSON.stringify(workspace());
-    render();
+    stampUrl(id); render();
     alert('共用空間已建立（內容已加密）\n\n空間名稱：' + id + '\n密碼：' + pass +
       '\n\n把這兩個給同行者，他們在任何裝置輸入，就會看到你目前所有的旅程與編輯紀錄。\n' +
       '之後你新增的旅程也會自動進到這個空間，不需要再設定。\n\n' +
@@ -2264,7 +2307,7 @@ async function cloudCreate() {
 /* ---------- 登入既有空間 ---------- */
 async function cloudOpen(preId, prePass) {
   if (!cloudReady()) return;
-  const id = cleanId(preId != null ? preId : prompt('輸入共用空間名稱：', ''));
+  const id = cleanId(preId != null ? preId : prompt('輸入共用空間名稱：', urlParams().s || ''));
   if (!id) return;
   const pass = prePass != null ? prePass : prompt('輸入密碼：', '');
   if (pass === null) return;
@@ -2300,6 +2343,7 @@ async function cloudOpen(preId, prePass) {
       });
     }
     setCloud({ id: id, pass: pass, rev: r.rev, at: Date.now() });
+    CLOUD.authErr = false; stampUrl(id);
     TAB = 'ov'; saveDB(true); render();
     if (mine.length) { _lastSent = ''; setTimeout(() => cloudPush(true), 60); }   // 等 finally 解除 busy 再上傳
     else _lastSent = JSON.stringify(workspace());
@@ -2335,8 +2379,11 @@ async function cloudPush(force) {
       return;
     }
     c.rev = (r && r.rev) || c.rev + 1; c.at = Date.now();
-    _lastSent = sig; setCloud(c);
-  } catch (e) { CLOUD.err = e.message; }
+    _lastSent = sig; setCloud(c); CLOUD.authErr = false;
+  } catch (e) {
+    CLOUD.err = e.message;
+    if (/空間名稱或密碼不正確/.test(e.message)) { CLOUD.authErr = true; render(); }
+  }
   finally { CLOUD.busy = false; updateCloudTag(); }
 }
 
@@ -2348,18 +2395,25 @@ async function cloudPull(silent) {
     const k = await keysFor(c.id, c.pass);
     const row = await supaRpc('trip_load', { p_code: c.id, p_pass: k.auth });
     const r = Array.isArray(row) ? row[0] : row;
-    if (!r) throw new Error('讀取失敗');
+    if (!r) throw new Error('空間名稱或密碼不正確');
     if (r.rev !== c.rev || silent) {
       const f = document.activeElement;
       if (f && /INPUT|TEXTAREA|SELECT/.test(f.tagName) && !silent) { CLOUD.busy = false; return; }
-      applyWorkspace(await decJson(k.key, r.data));
+      let w;
+      try { w = await decJson(k.key, r.data); }
+      catch (e) { throw new Error('解密失敗，密碼不正確'); }
+      applyWorkspace(w);
       c.rev = r.rev; c.at = Date.now(); setCloud(c);
       _lastSent = JSON.stringify(workspace());
       render();
       if (!silent) toast('已從雲端更新');
     }
-    CLOUD.err = '';
-  } catch (e) { CLOUD.err = e.message; }
+    CLOUD.err = ''; CLOUD.authErr = false;
+  } catch (e) {
+    CLOUD.err = e.message;
+    if (/空間名稱或密碼不正確|解密失敗/.test(e.message)) CLOUD.authErr = true;
+    render();
+  }
   finally { CLOUD.busy = false; updateCloudTag(); }
 }
 
@@ -2407,6 +2461,27 @@ function copyShare() {
 }
 function togglePass() { CLOUD.showPass = !CLOUD.showPass; render(); }
 
+/* ---------- 頂部提示條：未登入 / 同步異常時一定要看得到 ---------- */
+function cloudBanner() {
+  if (!CLOUD_ON) return '';
+  const c = curCloud();
+  if (c && CLOUD.authErr) {
+    return `<div class="banner bad">
+      <b>無法連上共用空間「${esc(c.id)}」</b>　${esc(CLOUD.err || '')}
+      <button class="btn sm" onclick="cloudOpen('${esc(c.id)}')">重新登入</button>
+      <button class="btn sm" onclick="exportAll()">先匯出備份</button>
+    </div>`;
+  }
+  if (c) return '';
+  if (!CRYPTO_OK) return '';
+  const hinted = urlParams().s;
+  return `<div class="banner warn">
+    <b>這台裝置尚未連上共用空間</b>　目前的資料只存在這台裝置，換裝置或清除瀏覽資料就會不見。
+    <button class="btn sm primary" onclick="cloudOpen(${hinted ? `'${esc(hinted)}'` : ''})">登入共用空間${hinted ? '「' + esc(hinted) + '」' : ''}</button>
+    <button class="btn sm" onclick="cloudCreate()">建立新的</button>
+  </div>`;
+}
+
 /* ---------- UI ---------- */
 function updateCloudTag() {
   const el = $('#cloudtag'); if (!el) return;
@@ -2445,7 +2520,8 @@ function cloudPanel() {
     <span class="codebox">${esc(c.id)}</span>
     <span class="chip good">已加密</span>
     <span class="chip">${DB.order.length} 趟旅程</span>
-    <button class="btn sm" onclick="copyShare()">複製分享訊息</button>
+    <button class="btn sm" onclick="copyLink(true)" title="網址已含密碼，點開即用">複製登入連結</button>
+    <button class="btn sm" onclick="copyShare()">複製空間與密碼</button>
     <button class="btn sm" onclick="cloudPull()">立即更新</button>
     <button class="btn sm" onclick="cloudPush(true)">強制上傳</button>
     <button class="btn sm" onclick="changePass()">變更密碼</button>
@@ -2462,13 +2538,14 @@ function cloudPanel() {
 /* ---------- 啟動 ---------- */
 function cloudInit() {
   if (!CLOUD_ON) return;
-  const q = new URLSearchParams(location.search).get('s');
-  if (q) {
-    history.replaceState({}, '', location.pathname);
-    const id = cleanId(q);
+  const u = urlParams();
+  if (u.s) {
     const c = curCloud();
-    if (!c || c.id !== id) setTimeout(() => cloudOpen(id), 400);
-  }
+    if (!c || c.id !== u.s) {
+      // 網址帶密碼 → 直接登入，完全不用打字；只帶空間名稱 → 只問密碼
+      setTimeout(() => cloudOpen(u.s, u.k || undefined), 300);
+    } else stampUrl(c.id);
+  } else if (curCloud()) stampUrl(curCloud().id);
   clearInterval(_pullT);
   _pullT = setInterval(() => { if (!document.hidden && curCloud()) cloudPull(); }, PULL_MS);
   window.addEventListener('focus', () => { if (curCloud()) cloudPull(); });
