@@ -177,6 +177,8 @@ table.dt tr.flash td,.lugitem.flash{animation:rowflash 2.2s ease-out}
 .modebar .hint code{background:var(--surface-3);padding:1px 5px;border-radius:4px;font-size:11.5px}
 .mbtn:disabled{opacity:.5;cursor:default}
 .rowdel.star{font-size:14px}
+.rowdel.dup{font-size:13px}
+.rowdel.dup:hover{color:var(--accent);background:var(--surface-3)}
 .rowdel.star.on{color:var(--s4)}
 .rowdel.star:hover{color:var(--s4);background:var(--surface-3)}
 dialog.helpbox{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-1);color:var(--text-primary);max-width:620px;width:92vw;padding:0;box-shadow:0 20px 60px rgba(0,0,0,.3)}
@@ -209,6 +211,7 @@ dialog.helpbox h3{font-size:16px;margin-bottom:10px}
 .sortbtn.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:650}
 .lugcarry{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--text-secondary);white-space:nowrap}
 .lugcarry input{width:17px;height:17px}
+.lugbtn{padding:3px 9px;font-size:12px;border-radius:6px}
 @media(min-width:761px){
   .lugmeta{flex:0 1 auto;order:5;padding-left:0}
   .lugitem .lugdel{order:9;margin-left:0}
@@ -555,14 +558,32 @@ function upd(mod, id, key, val, rr) {
 }
 function updTrip(key, val, rr) { S.trip[key] = val; touch(); if (rr) renderSoon(); }
 let NEWROW = '';
-function addRow(mod, tpl) {
-  const r = mk(tpl || {});
-  S[mod].push(r); NEWROW = r.id; touch(); render();
+/* 捲到新列、聚焦、閃一下 */
+function focusNew(id) {
   setTimeout(() => {
-    const el = document.querySelector(`[data-i="${r.id}"]`);
+    const el = document.querySelector(`[data-i="${id}"]`);
     if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (el.focus) el.focus(); }
     NEWROW = '';
   }, 60);
+}
+/* 複製某一列，插在它的正下方 */
+function dupRow(mod, id, patch) {
+  const src = findRow(mod, id); if (!src) return null;
+  const c = Object.assign({}, src, { packed: 0, back: 0, done: 0 }, patch || {});
+  delete c.id; delete c.lock;
+  const n = mk(c);
+  const i = S[mod].findIndex(r => r.id === id);
+  S[mod].splice(i < 0 ? S[mod].length : i + 1, 0, n);
+  return n;
+}
+function dupRowUI(mod, id) {
+  const n = dupRow(mod, id); if (!n) return;
+  NEWROW = n.id; touch(); render(); focusNew(n.id);
+  toast('已複製一份');
+}
+function addRow(mod, tpl) {
+  const r = mk(tpl || {});
+  S[mod].push(r); NEWROW = r.id; touch(); render(); focusNew(r.id);
 }
 function delRow(mod, id) {
   const r = findRow(mod, id); if (!r) return;
@@ -639,13 +660,14 @@ function table(mod, cols, rows, opt) {
     const star = mod === 'meds'
       ? `<button class="rowdel star ${r.lock ? 'on' : ''}" title="${r.lock ? '取消「常備」標記' : '標為常備（可存成個人預設，每趟自動帶入）'}" onclick="toggleLock('${r.id}')">${r.lock ? '★' : '☆'}</button>`
       : '';
+    const dup = `<button class="rowdel dup" title="複製這一列" onclick="dupRowUI('${mod}','${r.id}')">⧉</button>`;
     const cells = cols.map(c => cell(mod, r, c));
     const tag = opt.tag ? opt.tag(r) : '';
     if (tag) cells[0] = cells[0].replace(/<\/td>$/, tag + '</td>');
     return `<tr class="${cls.join(' ')}">` + cells.join('') +
-      `<td class="ctr noprint" style="white-space:nowrap">${star}<button class="rowdel" title="刪除" onclick="delRow('${mod}','${r.id}')">×</button></td></tr>`;
+      `<td class="ctr noprint" style="white-space:nowrap">${star}${dup}<button class="rowdel" title="刪除" onclick="delRow('${mod}','${r.id}')">×</button></td></tr>`;
   }).join('');
-  return `<div class="tblwrap"><table class="dt"><thead><tr>${head}<th style="width:${mod === 'meds' ? 62 : 34}px" class="noprint"></th></tr></thead><tbody>${body}</tbody></table></div>`;
+  return `<div class="tblwrap"><table class="dt"><thead><tr>${head}<th style="width:${mod === 'meds' ? 86 : 58}px" class="noprint"></th></tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 function addBtn(mod, tpl, label) {
@@ -994,6 +1016,28 @@ function lugSortBar() {
   </div>`;
 }
 
+/* 複製一份給同一人 */
+function dupLug(id) {
+  const n = dupRow('luggage', id); if (!n) return;
+  NEWROW = n.id; touch(); render(); focusNew(n.id);
+  toast('已複製一份');
+}
+/* 複製給所有成員（已經有同名同分類的人會跳過） */
+function dupLugAll(id) {
+  const src = findRow('luggage', id); if (!src) return;
+  const ppl = lugPeople();
+  if (!ppl.length) { toast('請先到「同行人物」填成員姓名'); return; }
+  const has = {};
+  S.luggage.forEach(x => { if (x.name === src.name && x.cat === src.cat) has[lugWhoOf(x)] = 1; });
+  const todo = ppl.filter(n => !has[n]);
+  if (!todo.length) { toast('每位成員都已經有「' + (src.name || '這一項') + '」了'); return; }
+  let last = id;
+  todo.forEach(who => { const n = dupRow('luggage', last, { who: who }); if (n) last = n.id; });
+  if (lugWhoOf(src) === '未指定' && ppl.length) src.who = src.who || '';
+  NEWROW = ''; touch(); render();
+  toast('已複製給 ' + todo.join('、') + '（' + todo.length + ' 人）');
+}
+
 function lugRow(x, owners) {
   const opt = (v, list) => list.map(o => `<option ${o === (v || '未指定') ? 'selected' : ''}>${esc(o)}</option>`).join('');
   return `<div class="lugitem${x.packed ? ' done' : ''}${x.id === NEWROW ? ' flash' : ''}">
@@ -1009,6 +1053,8 @@ function lugRow(x, owners) {
       <select title="分類" onchange="upd('luggage','${x.id}','cat',this.value,true)">${opt(x.cat, LUGCAT)}</select>
       <label class="lugcarry"><input type="checkbox" ${x.carry ? 'checked' : ''}
         onchange="upd('luggage','${x.id}','carry',this.checked?1:0,false)"> 隨身</label>
+      <button class="btn sm lugbtn" onclick="dupLug('${x.id}')" title="複製一份給同一人">複製</button>
+      ${lugPeople().length > 1 ? `<button class="btn sm lugbtn" onclick="dupLugAll('${x.id}')" title="複製給所有成員，已經有的會跳過">給每人</button>` : ''}
     </div>
   </div>`;
 }
